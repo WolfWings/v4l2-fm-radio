@@ -6,16 +6,9 @@
 #include <sys/ioctl.h>
 #include <linux/v4l2-subdev.h>
 
-struct {
-	struct v4l2_tuner sampler;
-	struct v4l2_tuner tuner;
-	int handle;
-} sdr;
-
 static struct v4l2_frequency scratch_freq;
 
 int sdr_tune( int handle, uint32_t freq ) {
-	// 
 	memset( &scratch_freq, 0, sizeof( scratch_freq ) );
 	scratch_freq.type = V4L2_TUNER_RF;
 	scratch_freq.tuner = 1;
@@ -34,18 +27,19 @@ int sdr_tune( int handle, uint32_t freq ) {
 }
 
 int sdr_init( void ) {
+	struct v4l2_tuner sampler;
+	struct v4l2_tuner tuner;
 	struct dirent *entry;
 	DIR *devices = opendir( "/dev" );
-
-	sdr.handle = -1;
+	int handle = -1;
 
 	for ( ; ; ) {
 		// This is a loop simplification:
 		// We don't need to manually close the handle
 		// for the device before giving up on an option.
-		if ( sdr.handle != -1 ) {
-			close( sdr.handle );
-			sdr.handle = -1;
+		if ( handle != -1 ) {
+			close( handle );
+			handle = -1;
 		}
 
 		entry = readdir( devices );
@@ -65,23 +59,23 @@ int sdr_init( void ) {
 			continue;
 		}
 
-		sdr.handle = openat( dirfd( devices ), entry->d_name, O_RDONLY );
+		handle = openat( dirfd( devices ), entry->d_name, O_RDONLY );
 
 		// Well THAT was anti-climatic, NEXT!
-		if ( sdr.handle == -1 ) {
+		if ( handle == -1 ) {
 			continue;
 		}
 
 		// The sampler is always tuner index 0
-		memset( &sdr.sampler, 0, sizeof( struct v4l2_tuner ) );
-		sdr.sampler.index = 0;
+		memset( &sampler, 0, sizeof( struct v4l2_tuner ) );
+		sampler.index = 0;
 
 		// If the ioctl fails, either:
 		// * It's not an SDR.
 		// * There's a hardware issue.
 		//
 		// Either way, we don't care, next contestant!
-		if ( ioctl( sdr.handle, VIDIOC_G_TUNER, &sdr.sampler ) == -1 ) {
+		if ( ioctl( handle, VIDIOC_G_TUNER, &sampler ) == -1 ) {
 			continue;
 		}
 
@@ -91,25 +85,25 @@ int sdr_init( void ) {
 		// Note that this does NOT do a comprehensive test against the
 		// disparate range list the API can return. This is an early-out
 		// for rapid auto-detection not intended for debugging hardware.
-		if ( ( sdr.sampler.type != V4L2_TUNER_SDR )
-		  || ( sdr.sampler.rangelow > 2048000 )
-		  || ( sdr.sampler.rangehigh < 2048000 ) ) {
+		if ( ( sampler.type != V4L2_TUNER_SDR )
+		  || ( sampler.rangelow > 2048000 )
+		  || ( sampler.rangehigh < 2048000 ) ) {
 			continue;
 		}
 
 		// On SDR's tuner #1 is the actual RF center frequency.
-		memset( &sdr.tuner,   0, sizeof( struct v4l2_tuner ) );
-		sdr.tuner.index = 1;
+		memset( &tuner,   0, sizeof( struct v4l2_tuner ) );
+		tuner.index = 1;
 
-		if ( ioctl( sdr.handle, VIDIOC_G_TUNER, &sdr.tuner ) == -1 ) {
+		if ( ioctl( handle, VIDIOC_G_TUNER, &tuner ) == -1 ) {
 			continue;
 		}
 
 		// Make sure we can actually cover the FM radio band, our main goal
-		if ( ( sdr.tuner.type != V4L2_TUNER_RF )
-		  || ( ( sdr.tuner.capability & V4L2_TUNER_CAP_1HZ ) == 0 )
-		  || ( sdr.tuner.rangelow  >  88100000 )
-		  || ( sdr.tuner.rangehigh < 107900000 ) ) {
+		if ( ( tuner.type != V4L2_TUNER_RF )
+		  || ( ( tuner.capability & V4L2_TUNER_CAP_1HZ ) == 0 )
+		  || ( tuner.rangelow  >  88100000 )
+		  || ( tuner.rangehigh < 107900000 ) ) {
 			continue;
 		}
 
@@ -121,7 +115,7 @@ int sdr_init( void ) {
 		scratch_freq.type = V4L2_TUNER_SDR;
 		scratch_freq.tuner = 0;
 
-		if ( ioctl( sdr.handle, VIDIOC_G_FREQUENCY, &scratch_freq ) != 0 ) {
+		if ( ioctl( handle, VIDIOC_G_FREQUENCY, &scratch_freq ) != 0 ) {
 			continue;
 		}
 
@@ -132,7 +126,7 @@ int sdr_init( void ) {
 			scratch_freq.tuner = 0;
 			scratch_freq.frequency = 2048000;
 
-			if ( ioctl( sdr.handle, VIDIOC_S_FREQUENCY, &scratch_freq ) != 0 ) {
+			if ( ioctl( handle, VIDIOC_S_FREQUENCY, &scratch_freq ) != 0 ) {
 				continue;
 			}
 		}
@@ -142,5 +136,5 @@ int sdr_init( void ) {
 
 	closedir( devices );
 
-	return sdr.handle;
+	return handle;
 }
