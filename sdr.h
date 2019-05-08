@@ -5,6 +5,5 @@
 
 int sdr_tune( int handle, uint32_t freq );
 int sdr_init( void );
-void sdr_close( void );
 
 #endif
