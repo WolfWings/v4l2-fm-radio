@@ -10,10 +10,8 @@ static const __v8sf atan2_5		= SIMD_CONST_8(  0.1593142200 ); // a^5 term
 static const __v8sf atan2_3		= SIMD_CONST_8( -0.3276227640 ); // a^3 term
 static const __v8sf atan2_pi_half	= SIMD_CONST_8( M_PI_2 );
 static const __v8sf atan2_pi_full	= SIMD_CONST_8( M_PI );
-static const __v8sf zero		= SIMD_CONST_8( 0.0 );
 static const __v8hi sign_flip_bytes	= SIMD_CONST_8( ~0x7f7f ); // 16 bytes of 0x80 defined in a way to avoid compiler warnings
-static const __v16qi deinterleave_i	= { 0, 2, 4, 6, 8, 10, 12, 14, -128, -128, -128, -128, -128, -128, -128, -128 };
-static const __v16qi deinterleave_q	= { 1, 3, 5, 7, 9, 11, 13, 15, -128, -128, -128, -128, -128, -128, -128, -128 };
+static const __v16qi deinterleave_iq	= { 0, 2, 4, 6, 8, 10, 12, 14, 1, 3, 5, 7, 9, 11, 13, 15 };
 
 // Moved outside of the processing function to avoid being stack allocated
 // Also these are larger than strictly needed to allow for aligned stores
@@ -27,6 +25,7 @@ void fm_decoder_process( uint8_t *input, int32_t len, uint16_t *output ) {
 	__v8sf x, y, arctans;
 	__m128i b_i_0, b_i_1, b_i_2, b_i_3;
 	__m128i b_q_0, b_q_1, b_q_2, b_q_3;
+	__m128i deint = (__m128i)deinterleave_iq;
 
 	// Pre-load the carryover mechanism
 	mux_i[11] = carryover_i;
@@ -47,56 +46,58 @@ void fm_decoder_process( uint8_t *input, int32_t len, uint16_t *output ) {
 		mux_q[3] = mux_q[11];
 
 		b_q_0	= _mm_xor_si128( *(__m128i*)(&input[  0]), (__m128i)sign_flip_bytes );
-		b_i_0	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_0, (__m128i)deinterleave_i ) );
-		b_q_0	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_0, (__m128i)deinterleave_q ) );
-
 		b_q_1	= _mm_xor_si128( *(__m128i*)(&input[ 16]), (__m128i)sign_flip_bytes );
-		b_i_1	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_1, (__m128i)deinterleave_i ) );
-		b_q_1	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_1, (__m128i)deinterleave_q ) );
-
 		b_q_2	= _mm_xor_si128( *(__m128i*)(&input[ 32]), (__m128i)sign_flip_bytes );
-		b_i_2	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_2, (__m128i)deinterleave_i ) );
-		b_q_2	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_2, (__m128i)deinterleave_q ) );
-
 		b_q_3	= _mm_xor_si128( *(__m128i*)(&input[ 48]), (__m128i)sign_flip_bytes );
-		b_i_3	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_3, (__m128i)deinterleave_i ) );
-		b_q_3	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_3, (__m128i)deinterleave_q ) );
 
-		//	I stream data					Q stream data
-		b_i_0	= _mm_hadd_epi16( b_i_0, b_i_1 );	b_q_0	= _mm_hadd_epi16( b_q_0, b_q_1 );
-		b_i_2	= _mm_hadd_epi16( b_i_2, b_i_3 );	b_q_2	= _mm_hadd_epi16( b_q_2, b_q_3 );
-		b_i_0	= _mm_hadd_epi16( b_i_0, b_i_2 );	b_q_0	= _mm_hadd_epi16( b_q_0, b_q_2 );
-		b_i_0	= _mm_hadd_epi16( b_i_0, b_i_0 );	b_q_0	= _mm_hadd_epi16( b_q_0, b_q_0 );
-		b_i_0	= _mm_cvtepi16_epi32( b_i_0 );		b_q_0	= _mm_cvtepi16_epi32( b_q_0 );
+		b_i_0	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_0, deint ) );
+		b_i_1	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_1, deint ) );
+		b_i_2	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_2, deint ) );
+		b_i_3	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_3, deint ) );
 
-		*(__m128*)(&mux_i[4]) = _mm_cvtepi32_ps( b_i_0 );
-		*(__m128*)(&mux_q[4]) = _mm_cvtepi32_ps( b_q_0 );
+		deint	= _mm_alignr_epi8( deint, deint, 8 );
+
+		b_q_0	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_0, deint ) );
+		b_q_1	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_1, deint ) );
+		b_q_2	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_2, deint ) );
+		b_q_3	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_3, deint ) );
+
+		deint	= _mm_alignr_epi8( deint, deint, 8 );
+
+		//	I stream data						Q stream data
+		b_i_0	= _mm_hadd_epi16( b_i_0, b_i_1 );		b_q_0	= _mm_hadd_epi16( b_q_0, b_q_1 );
+		b_i_2	= _mm_hadd_epi16( b_i_2, b_i_3 );		b_q_2	= _mm_hadd_epi16( b_q_2, b_q_3 );
+		b_i_0	= _mm_hadd_epi16( b_i_0, b_i_2 );		b_q_0	= _mm_hadd_epi16( b_q_0, b_q_2 );
+		b_i_0	= _mm_hadd_epi16( b_i_0, b_i_0 );		b_q_0	= _mm_hadd_epi16( b_q_0, b_q_0 );
+		b_i_0	= _mm_cvtepi16_epi32( b_i_0 );			b_q_0	= _mm_cvtepi16_epi32( b_q_0 );
+		*(__m128*)(&mux_i[4]) = _mm_cvtepi32_ps( b_i_0 );	*(__m128*)(&mux_q[4]) = _mm_cvtepi32_ps( b_q_0 );
 
 		b_q_0	= _mm_xor_si128( *(__m128i*)(&input[ 64]), (__m128i)sign_flip_bytes );
-		b_i_0	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_0, (__m128i)deinterleave_i ) );
-		b_q_0	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_0, (__m128i)deinterleave_q ) );
-
 		b_q_1	= _mm_xor_si128( *(__m128i*)(&input[ 80]), (__m128i)sign_flip_bytes );
-		b_i_1	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_1, (__m128i)deinterleave_i ) );
-		b_q_1	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_1, (__m128i)deinterleave_q ) );
-
 		b_q_2	= _mm_xor_si128( *(__m128i*)(&input[ 96]), (__m128i)sign_flip_bytes );
-		b_i_2	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_2, (__m128i)deinterleave_i ) );
-		b_q_2	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_2, (__m128i)deinterleave_q ) );
-
 		b_q_3	= _mm_xor_si128( *(__m128i*)(&input[112]), (__m128i)sign_flip_bytes );
-		b_i_3	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_3, (__m128i)deinterleave_i ) );
-		b_q_3	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_3, (__m128i)deinterleave_q ) );
 
-		//	I stream data					Q stream data
-		b_i_0	= _mm_hadd_epi16( b_i_0, b_i_1 );	b_q_0	= _mm_hadd_epi16( b_q_0, b_q_1 );
-		b_i_2	= _mm_hadd_epi16( b_i_2, b_i_3 );	b_q_2	= _mm_hadd_epi16( b_q_2, b_q_3 );
-		b_i_0	= _mm_hadd_epi16( b_i_0, b_i_2 );	b_q_0	= _mm_hadd_epi16( b_q_0, b_q_2 );
-		b_i_0	= _mm_hadd_epi16( b_i_0, b_i_0 );	b_q_0	= _mm_hadd_epi16( b_q_0, b_q_0 );
-		b_i_0	= _mm_cvtepi16_epi32( b_i_0 );		b_q_0	= _mm_cvtepi16_epi32( b_q_0 );
+		b_i_0	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_0, deint ) );
+		b_i_1	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_1, deint ) );
+		b_i_2	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_2, deint ) );
+		b_i_3	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_3, deint ) );
 
-		*(__m128*)(&mux_i[8]) = _mm_cvtepi32_ps( b_i_0 );
-		*(__m128*)(&mux_q[8]) = _mm_cvtepi32_ps( b_q_0 );
+		deint	= _mm_alignr_epi8( deint, deint, 8 );
+
+		b_q_0	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_0, deint ) );
+		b_q_1	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_1, deint ) );
+		b_q_2	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_2, deint ) );
+		b_q_3	= _mm_cvtepi8_epi16( _mm_shuffle_epi8( b_q_3, deint ) );
+
+		deint	= _mm_alignr_epi8( deint, deint, 8 );
+
+		//	I stream data						Q stream data
+		b_i_0	= _mm_hadd_epi16( b_i_0, b_i_1 );		b_q_0	= _mm_hadd_epi16( b_q_0, b_q_1 );
+		b_i_2	= _mm_hadd_epi16( b_i_2, b_i_3 );		b_q_2	= _mm_hadd_epi16( b_q_2, b_q_3 );
+		b_i_0	= _mm_hadd_epi16( b_i_0, b_i_2 );		b_q_0	= _mm_hadd_epi16( b_q_0, b_q_2 );
+		b_i_0	= _mm_hadd_epi16( b_i_0, b_i_0 );		b_q_0	= _mm_hadd_epi16( b_q_0, b_q_0 );
+		b_i_0	= _mm_cvtepi16_epi32( b_i_0 );			b_q_0	= _mm_cvtepi16_epi32( b_q_0 );
+		*(__m128*)(&mux_i[8]) = _mm_cvtepi32_ps( b_i_0 );	*(__m128*)(&mux_q[8]) = _mm_cvtepi32_ps( b_q_0 );
 
 		// y = i[0] * q[1] - i[1] * q[0]
 		y = _mm256_sub_ps(
@@ -128,19 +129,26 @@ void fm_decoder_process( uint8_t *input, int32_t len, uint16_t *output ) {
 		arctans = _mm256_fmadd_ps( arctans, div, div );
 
 		// Handle x/y versus y/x inversion + rotation
-		__v8sf flip_mask = _mm256_cmp_ps( yabs, xabs, _CMP_GE_OQ );
+		__v8sf flip_mask = _mm256_cmp_ps( yabs, xabs, _CMP_GT_OQ );
 		__v8sf flip_value = _mm256_sub_ps( atan2_pi_half, arctans );
 		arctans = _mm256_blendv_ps( arctans, flip_value, flip_mask );
 
 		// Negative X inversion + rotation
-		__v8sf negx_mask = _mm256_cmp_ps( x, zero, _CMP_LT_OQ );
+		// As x86 SIMD requires the highest bit to indicate sign
+		// and the BlendV operation only checks the top bit,
+		// we can avoid an extra register used here by simply
+		// referencing X directly as the 'mask' register
 		__v8sf negx_value = _mm256_sub_ps( atan2_pi_full, arctans );
-		arctans = _mm256_blendv_ps( arctans, negx_value, negx_mask );
+		arctans = _mm256_blendv_ps( arctans, negx_value, x );
 
 		// Negative Y inversion
-		__v8sf negy_mask = _mm256_cmp_ps( y, zero, _CMP_LT_OQ );
-		__v8sf negy_value = _mm256_sub_ps( zero, arctans );
-		arctans = _mm256_blendv_ps( arctans, negy_value, negy_mask );
+		// As we are strictly negating arctans if the matching
+		// entry in Y is negative, we can simply xor in Y's
+		// sign bits here.
+		// To extract Y's sign bits we'll cheat and xor abs(y)
+		// back in since we only masked the sign bits out to
+		// create the abs(y) value earlier.
+		arctans = (__v8sf)_mm256_xor_si256( (__m256i)arctans, _mm256_xor_si256( (__m256i)y, (__m256i)yabs ) );
 
 		// At this point our actual output audio sample is box-filtered
 		// from 8 samples to 1, and converted from radians to a signed
