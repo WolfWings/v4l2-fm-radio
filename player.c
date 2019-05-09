@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdint.h>
-#include <sys/mman.h>
 
 #include "fm_decoder.h"
 #include "sdr.h"
@@ -56,16 +55,13 @@ int main( int argc, char **argv ) {
 		return 1;
 	}
 
-	// Un-required for now, but prepatory for later
-	// zero-copy work using this basic codebase.
-	input = mmap( NULL, 2048 * 1024, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0 );
-	if ( input == MAP_FAILED ) {
+	input = malloc( 64 * 32 * 1024 );
+	if ( input == NULL ) {
 		fprintf( stderr, "Failed to allocate input buffer!\n" );
 	}
 
-	// Same as the above, used mmap for one might as well for both.
-	output = mmap( NULL, 32768, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0 );
-	if ( output == MAP_FAILED ) {
+	output = malloc(     32 * 1024 );
+	if ( output == NULL ) {
 		fprintf( stderr, "Failed to allocate output buffer!\n" );
 	}
 
