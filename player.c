@@ -36,6 +36,14 @@ int main( int argc, char **argv ) {
 		return 1;
 	}
 
+	if ( isatty( fileno( stdout ) ) ) {
+		fprintf( stderr,
+			"This tool outputs a 16-bit 32KHz PCM .WAV file to standard out,\n"
+			"intended for piping to aplay, play, or other tool of your choice.\n"
+			"\n"
+			"To avoid spamming up your terminal and beeping like mad, exiting.\n" );
+	}
+
 	// This construct limits any input number to valid NA FM frequencies only
 	dongle.freq = ( uint32_t )( atof( argv[1] ) * 5 );
 	dongle.freq = ( dongle.freq + 160 ) % 100;
